@@ -1,0 +1,364 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>AI Hazard Monitor: Fire & Crowd</title>
+    <!-- TensorFlow & COCO-SSD -->
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow/tfjs"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@tensorflow-models/coco-ssd"></script>
+    
+    <!-- Google Generative AI -->
+    <script type="importmap">
+      {
+        "imports": {
+          "@google/generative-ai": "https://esm.run/@google/generative-ai"
+        }
+      }
+    </script>
+
+    <style>
+        body { font-family: 'Segoe UI', monospace; background: #0f0f0f; color: #e0e0e0; text-align: center; margin: 0; }
+        
+        /* Layout */
+        #main-wrapper { display: flex; flex-direction: column; align-items: center; padding-bottom: 50px; }
+        
+        /* Video Feed */
+        #cam-container {
+            position: relative;
+            width: 640px;
+            height: 480px;
+            margin: 20px;
+            border: 3px solid #333;
+            background: #000;
+            border-radius: 4px;
+            overflow: hidden;
+            box-shadow: 0 0 20px rgba(0,0,0,0.5);
+        }
+        video { position: absolute; top: 0; left: 0; width: 100%; height: 100%; object-fit: cover; }
+        canvas { position: absolute; top: 0; left: 0; width: 100%; height: 100%; }
+
+        /* Dashboard Grid */
+        #dashboard { 
+            display: grid; 
+            grid-template-columns: repeat(2, 1fr); 
+            gap: 15px; 
+            width: 640px; 
+            margin-bottom: 20px; 
+        }
+        .card {
+            background: #1e1e1e;
+            padding: 15px;
+            border-radius: 6px;
+            text-align: left;
+            border-left: 4px solid #444;
+        }
+        .card h3 { margin: 0 0 5px 0; font-size: 12px; color: #888; text-transform: uppercase; letter-spacing: 1px; }
+        .value { font-size: 20px; font-weight: bold; }
+        .sub-text { font-size: 12px; color: #666; margin-top: 5px; }
+
+        /* Risk Meter */
+        #risk-bar-container { width: 100%; height: 6px; background: #333; margin-top: 5px; border-radius: 3px; overflow: hidden;}
+        #risk-bar-fill { height: 100%; width: 0%; background: #4caf50; transition: width 0.5s, background 0.5s; }
+
+        /* Status Colors */
+        .safe { color: #4caf50; border-color: #4caf50; }
+        .warning { color: #ff9800; border-color: #ff9800; }
+        .danger { color: #f44336; border-color: #f44336; }
+
+        /* Controls */
+        #controls { margin: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
+        input { padding: 10px; background: #222; border: 1px solid #444; color: white; width: 200px; border-radius: 4px; }
+        button { padding: 10px 15px; border: none; background: #007acc; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button:hover { background: #005f9e; }
+        
+        /* Simulation Buttons */
+        .sim-btn-fire { background: #d32f2f; }
+        .sim-btn-fire:hover { background: #b71c1c; }
+        .sim-btn-gather { background: #ef6c00; }
+        .sim-btn-gather:hover { background: #e65100; }
+        .active-sim { outline: 2px solid white; box-shadow: 0 0 10px white; }
+
+        /* Simulation Overlay */
+        .sim-overlay { 
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(255, 69, 0, 0.15); 
+            display: none; pointer-events: none; 
+            border: 5px solid #f44336; box-sizing: border-box;
+            z-index: 10;
+        }
+        .sim-text {
+            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
+            font-size: 40px; font-weight: 900; color: rgba(255,255,255,0.8);
+            text-transform: uppercase; letter-spacing: 5px;
+            text-shadow: 2px 2px 10px black;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="main-wrapper">
+        <h1>AI Hazard Monitor <span style="font-size:0.5em; color:#777;">v2.2</span></h1>
+        
+        <div id="controls">
+            <input type="password" id="apiKey" placeholder="Paste Gemini API Key">
+            <button onclick="startApp()">Activate System</button>
+            <button id="btn-sim-fire" class="sim-btn-fire" onclick="toggleFireSim()">⚡ Sim Fire</button>
+            <button id="btn-sim-gather" class="sim-btn-gather" onclick="toggleGatherSim()">👥 Sim Gathering</button>
+        </div>
+
+        <div id="cam-container">
+            <video id="webcam" autoplay playsinline muted></video>
+            <canvas id="overlay"></canvas>
+            <div id="sim-layer" class="sim-overlay">
+                <div class="sim-text">SIMULATION ACTIVE</div>
+            </div>
+        </div>
+
+        <div id="dashboard">
+            <div class="card" id="card-gather">
+                <h3>Crowd Density</h3>
+                <div class="value" id="gather-status">Normal</div>
+                <div class="sub-text">
+                    Count: <span id="person-count" style="color:white; font-weight:bold;">0</span> People
+                </div>
+            </div>
+
+            <div class="card" id="card-env">
+                <h3>Env Conditions</h3>
+                <div class="value" id="env-status">Stable</div>
+                <div class="sub-text">
+                    Flicker: <span id="flicker-val">0</span>% | Heat: <span id="heat-val">0</span>%
+                </div>
+            </div>
+
+            <div class="card" id="card-ai">
+                <h3>Fire & Smoke AI</h3>
+                <div class="value" id="ai-status">Scanning...</div>
+                <div class="sub-text" id="ai-details">Waiting for Gemini...</div>
+            </div>
+
+            <div class="card" id="card-risk">
+                <h3>Total Risk Score</h3>
+                <div class="value" id="risk-score">0 / 100</div>
+                <div id="risk-bar-container">
+                    <div id="risk-bar-fill"></div>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script type="module">
+        import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        // Global State
+        let modelCOCO = null;
+        let genAI = null;
+        let geminiModel = null;
+        let isRunning = false;
+        
+        // Simulation States
+        let isFireSimulated = false;
+        let isGatherSimulated = false;
+        
+        let audioCtx = null;
+        let lastAlarmTime = 0;
+        let brightnessHistory = []; 
+        let currentFireBox = null;
+        let aiData = { detected: false, smoke: false, risk: 0 }; 
+        
+        const HISTORY_SIZE = 30; 
+        const AI_INTERVAL = 3000; 
+        const GATHERING_THRESHOLD = 5; 
+        
+        const video = document.getElementById('webcam');
+        const canvas = document.getElementById('overlay');
+        const ctx = canvas.getContext('2d');
+
+        function initAudio() {
+            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+        }
+
+        function triggerAlarm(severity) {
+            const now = Date.now();
+            if (now - lastAlarmTime < 1000) return;
+            lastAlarmTime = now;
+            if (!audioCtx) return;
+            const osc = audioCtx.createOscillator();
+            const gain = audioCtx.createGain();
+            osc.type = severity > 70 ? 'sawtooth' : 'sine';
+            const freq = severity > 70 ? 800 : 400;
+            osc.frequency.setValueAtTime(freq, audioCtx.currentTime);
+            gain.gain.setValueAtTime(0.1, audioCtx.currentTime);
+            gain.gain.linearRampToValueAtTime(0, audioCtx.currentTime + 0.3);
+            osc.connect(gain);
+            gain.connect(audioCtx.destination);
+            osc.start(); osc.stop(audioCtx.currentTime + 0.3);
+        }
+
+        // --- NEW SIMULATION HANDLERS ---
+        window.toggleFireSim = () => {
+            isFireSimulated = !isFireSimulated;
+            document.getElementById('btn-sim-fire').classList.toggle('active-sim');
+            updateSimOverlay();
+            if(isFireSimulated) triggerAlarm(90);
+        };
+
+        window.toggleGatherSim = () => {
+            isGatherSimulated = !isGatherSimulated;
+            document.getElementById('btn-sim-gather').classList.toggle('active-sim');
+            updateSimOverlay();
+            if(isGatherSimulated) triggerAlarm(50);
+        };
+
+        function updateSimOverlay() {
+            const layer = document.getElementById('sim-layer');
+            layer.style.display = (isFireSimulated || isGatherSimulated) ? 'block' : 'none';
+        }
+
+        window.startApp = async () => {
+            const apiKey = document.getElementById('apiKey').value;
+            if (!apiKey) { alert("Key required"); return; }
+            initAudio();
+            genAI = new GoogleGenerativeAI(apiKey);
+            geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+            try {
+                const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
+                video.srcObject = stream;
+                await new Promise(r => video.onloadedmetadata = r);
+                canvas.width = 640; canvas.height = 480;
+                isRunning = true;
+                modelCOCO = await cocoSsd.load();
+                loop();
+                setInterval(checkGeminiAI, AI_INTERVAL);
+            } catch (e) { alert("Error: " + e.message); }
+        };
+
+        function analyzeEnvironment(frameData) {
+            let totalLuma = 0;
+            let redDominantPixels = 0;
+            const data = frameData.data;
+            for (let i = 0; i < data.length; i += 16) {
+                const r = data[i], g = data[i + 1], b = data[i + 2];
+                totalLuma += (0.299 * r + 0.587 * g + 0.114 * b);
+                if (r > 200 && b < 100 && g < 180) redDominantPixels++;
+            }
+            const avgLuma = totalLuma / (frameData.width * frameData.height / 4);
+            brightnessHistory.push(avgLuma);
+            if (brightnessHistory.length > HISTORY_SIZE) brightnessHistory.shift();
+            let flickerScore = 0;
+            if (brightnessHistory.length > 5) {
+                const mean = brightnessHistory.reduce((a, b) => a + b) / brightnessHistory.length;
+                const variance = brightnessHistory.reduce((a, b) => a + Math.pow(b - mean, 2), 0) / brightnessHistory.length;
+                flickerScore = Math.sqrt(variance); 
+            }
+            return { flicker: flickerScore, heat: (redDominantPixels / (frameData.width * frameData.height / 4)) * 100 };
+        }
+
+        async function loop() {
+            if (!isRunning) return;
+            ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+            const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+            const envStats = analyzeEnvironment(frameData);
+
+            // Crowd Detection
+            const predictions = await modelCOCO.detect(video);
+            let personCount = isGatherSimulated ? 12 : 0; // Forced simulation count
+            
+            predictions.forEach(p => {
+                if (p.class === 'person') {
+                    if (!isGatherSimulated) personCount++;
+                    ctx.strokeStyle = '#00FFFF'; ctx.lineWidth = 2;
+                    ctx.strokeRect(...p.bbox);
+                }
+            });
+
+            // Fire Visualization
+            if (aiData.detected || isFireSimulated) {
+                const box = isFireSimulated ? [180, 120, 280, 240] : currentFireBox;
+                if(box) {
+                    ctx.save();
+                    ctx.strokeStyle = '#FF0000'; ctx.lineWidth = 6;
+                    ctx.shadowColor = "red"; ctx.shadowBlur = 15;
+                    ctx.strokeRect(...box);
+                    ctx.fillStyle = '#FF0000'; ctx.font = 'bold 20px Arial';
+                    ctx.fillText("🔥 FIRE DETECTED", box[0], box[1] - 15);
+                    ctx.restore();
+                }
+            }
+
+            // Risk Logic
+            let flickerRisk = Math.min(envStats.flicker * 2, 20); 
+            let heatRisk = Math.min(envStats.heat * 10, 20);      
+            let aiRisk = isFireSimulated ? 95 : aiData.risk;                             
+            let totalRisk = Math.max(aiRisk, flickerRisk + heatRisk);
+            
+            updateDashboard(totalRisk, envStats, aiData, personCount);
+            if (totalRisk > 70 || personCount >= GATHERING_THRESHOLD) triggerAlarm(totalRisk > 70 ? 90 : 50);
+
+            requestAnimationFrame(loop);
+        }
+
+        function updateDashboard(risk, env, ai, people) {
+            // Gathering Status
+            const gatherEl = document.getElementById('gather-status');
+            const cardGather = document.getElementById('card-gather');
+            document.getElementById('person-count').innerText = people;
+            if (people >= GATHERING_THRESHOLD) {
+                gatherEl.innerText = "GATHERING ALERT";
+                gatherEl.className = "value warning";
+                cardGather.style.borderLeftColor = "#ff9800";
+            } else {
+                gatherEl.innerText = "Normal";
+                gatherEl.className = "value safe";
+                cardGather.style.borderLeftColor = "#4caf50";
+            }
+
+            // Fire Status
+            const aiEl = document.getElementById('ai-status');
+            const aiDet = document.getElementById('ai-details');
+            const cardAi = document.getElementById('card-ai');
+            if (ai.detected || isFireSimulated) {
+                aiEl.innerText = "FIRE DETECTED";
+                aiEl.className = "value danger";
+                cardAi.style.borderLeftColor = "#f44336";
+            } else {
+                aiEl.innerText = "Clear";
+                aiEl.className = "value safe";
+                cardAi.style.borderLeftColor = "#4caf50";
+            }
+            aiDet.innerText = `Gemini Risk: ${isFireSimulated ? 95 : ai.risk}/100`;
+
+            // Risk Meter
+            const riskScoreEl = document.getElementById('risk-score');
+            const barFill = document.getElementById('risk-bar-fill');
+            riskScoreEl.innerText = Math.floor(risk);
+            barFill.style.width = `${Math.min(risk, 100)}%`;
+            barFill.style.background = risk < 30 ? "#4caf50" : (risk < 70 ? "#ff9800" : "#f44336");
+            
+            document.getElementById('flicker-val').innerText = env.flicker.toFixed(1);
+            document.getElementById('heat-val').innerText = env.heat.toFixed(1);
+        }
+
+        async function checkGeminiAI() {
+            if (!isRunning || isFireSimulated) return;
+            const offCanvas = document.createElement('canvas');
+            offCanvas.width = 640; offCanvas.height = 480;
+            offCanvas.getContext('2d').drawImage(video, 0, 0);
+            const base64 = offCanvas.toDataURL('image/jpeg', 0.5).split(',')[1];
+            const prompt = `Analyze image for fire and smoke. Return JSON only: { "detected": boolean, "smoke": boolean, "risk_score": number, "bbox": [ymin, xmin, ymax, xmax] }`;
+            try {
+                const result = await geminiModel.generateContent([prompt, { inlineData: { data: base64, mimeType: "image/jpeg" } }]);
+                const text = result.response.text().replace(/```json|```/g, '').trim();
+                const data = JSON.parse(text);
+                aiData.detected = data.detected; aiData.risk = data.risk_score;
+                if (data.detected && data.bbox) {
+                    const [ymin, xmin, ymax, xmax] = data.bbox;
+                    currentFireBox = [(xmin/1000)*640, (ymin/1000)*480, ((xmax-xmin)/1000)*640, ((ymax-ymin)/1000)*480];
+                } else currentFireBox = null;
+            } catch (e) { console.error("AI Error", e); }
+        }
+    </script>
+</body>
+</html>
