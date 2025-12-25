@@ -68,8 +68,7 @@
 
         /* Controls */
         #controls { margin: 20px; display: flex; gap: 10px; justify-content: center; flex-wrap: wrap; }
-        input { padding: 10px; background: #222; border: 1px solid #444; color: white; width: 200px; border-radius: 4px; }
-        button { padding: 10px 15px; border: none; background: #007acc; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; }
+        button { padding: 12px 25px; border: none; background: #007acc; color: white; border-radius: 4px; cursor: pointer; font-weight: bold; font-size: 14px; }
         button:hover { background: #005f9e; }
         
         /* Simulation Buttons */
@@ -101,8 +100,8 @@
         <h1>AI Hazard Monitor <span style="font-size:0.5em; color:#777;">v2.2</span></h1>
         
         <div id="controls">
-            <input type="password" id="apiKey" placeholder="Paste Gemini API Key">
-            <button onclick="startApp()">Activate System</button>
+            <!-- API KEY INPUT REMOVED -->
+            <button onclick="startApp()">Initialize System</button>
             <button id="btn-sim-fire" class="sim-btn-fire" onclick="toggleFireSim()">⚡ Sim Fire</button>
             <button id="btn-sim-gather" class="sim-btn-gather" onclick="toggleGatherSim()">👥 Sim Gathering</button>
         </div>
@@ -135,7 +134,7 @@
             <div class="card" id="card-ai">
                 <h3>Fire & Smoke AI</h3>
                 <div class="value" id="ai-status">Scanning...</div>
-                <div class="sub-text" id="ai-details">Waiting for Gemini...</div>
+                <div class="sub-text" id="ai-details">Waiting for Activation...</div>
             </div>
 
             <div class="card" id="card-risk">
@@ -150,6 +149,9 @@
 
     <script type="module">
         import { GoogleGenerativeAI } from "@google/generative-ai";
+
+        // --- PASTE YOUR API KEY HERE ---
+        const GEMINI_API_KEY = "AIzaSyByn6N8xaJpRbVc41IijDkiYUOrkQnMQ4c";
 
         // Global State
         let modelCOCO = null;
@@ -196,7 +198,6 @@
             osc.start(); osc.stop(audioCtx.currentTime + 0.3);
         }
 
-        // --- NEW SIMULATION HANDLERS ---
         window.toggleFireSim = () => {
             isFireSimulated = !isFireSimulated;
             document.getElementById('btn-sim-fire').classList.toggle('active-sim');
@@ -217,11 +218,15 @@
         }
 
         window.startApp = async () => {
-            const apiKey = document.getElementById('apiKey').value;
-            if (!apiKey) { alert("Key required"); return; }
+            // Check if key was provided in the code
+            if (GEMINI_API_KEY === "Gemini API CODE") {
+                alert("Please edit the code and paste your Gemini API Key in the GEMINI_API_KEY variable.");
+                return;
+            }
+
             initAudio();
-            genAI = new GoogleGenerativeAI(apiKey);
-            geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+            genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
+            geminiModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
@@ -229,9 +234,15 @@
                 await new Promise(r => video.onloadedmetadata = r);
                 canvas.width = 640; canvas.height = 480;
                 isRunning = true;
+                
+                document.getElementById('ai-details').innerText = "Loading AI Models...";
                 modelCOCO = await cocoSsd.load();
+                
                 loop();
                 setInterval(checkGeminiAI, AI_INTERVAL);
+                
+                // Hide Initialize button after starting
+                document.querySelector('#controls button').style.display = 'none';
             } catch (e) { alert("Error: " + e.message); }
         };
 
@@ -262,9 +273,8 @@
             const frameData = ctx.getImageData(0, 0, canvas.width, canvas.height);
             const envStats = analyzeEnvironment(frameData);
 
-            // Crowd Detection
             const predictions = await modelCOCO.detect(video);
-            let personCount = isGatherSimulated ? 12 : 0; // Forced simulation count
+            let personCount = isGatherSimulated ? 12 : 0; 
             
             predictions.forEach(p => {
                 if (p.class === 'person') {
@@ -274,7 +284,6 @@
                 }
             });
 
-            // Fire Visualization
             if (aiData.detected || isFireSimulated) {
                 const box = isFireSimulated ? [180, 120, 280, 240] : currentFireBox;
                 if(box) {
@@ -288,7 +297,6 @@
                 }
             }
 
-            // Risk Logic
             let flickerRisk = Math.min(envStats.flicker * 2, 20); 
             let heatRisk = Math.min(envStats.heat * 10, 20);      
             let aiRisk = isFireSimulated ? 95 : aiData.risk;                             
@@ -301,7 +309,6 @@
         }
 
         function updateDashboard(risk, env, ai, people) {
-            // Gathering Status
             const gatherEl = document.getElementById('gather-status');
             const cardGather = document.getElementById('card-gather');
             document.getElementById('person-count').innerText = people;
@@ -315,7 +322,6 @@
                 cardGather.style.borderLeftColor = "#4caf50";
             }
 
-            // Fire Status
             const aiEl = document.getElementById('ai-status');
             const aiDet = document.getElementById('ai-details');
             const cardAi = document.getElementById('card-ai');
@@ -330,7 +336,6 @@
             }
             aiDet.innerText = `Gemini Risk: ${isFireSimulated ? 95 : ai.risk}/100`;
 
-            // Risk Meter
             const riskScoreEl = document.getElementById('risk-score');
             const barFill = document.getElementById('risk-bar-fill');
             riskScoreEl.innerText = Math.floor(risk);
