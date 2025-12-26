@@ -17,9 +17,7 @@
       }
     </script>
 
-    <!-- CSS -->
-    <link rel="stylesheet" href="style.css">
-
+     <link rel="stylesheet" href="style.css">
 </head>
 <body>
 
@@ -27,10 +25,9 @@
         <h1>AI Hazard Monitor <span style="font-size:0.5em; color:#777;">v2.2</span></h1>
         
         <div id="controls">
-            <!-- API KEY INPUT REMOVED -->
-            <button onclick="startApp()">Initialize System</button>
-            <button id="btn-sim-fire" class="sim-btn-fire" onclick="toggleFireSim()">⚡ Sim Fire</button>
-            <button id="btn-sim-gather" class="sim-btn-gather" onclick="toggleGatherSim()">👥 Sim Gathering</button>
+            <button id="start-btn">Initialize System</button>
+            <button id="btn-sim-fire" class="sim-btn-fire">⚡ Sim Fire</button>
+            <button id="btn-sim-gather" class="sim-btn-gather">👥 Sim Gathering</button>
         </div>
 
         <div id="cam-container">
@@ -76,20 +73,16 @@
 
     <script type="module">
         import { GoogleGenerativeAI } from "@google/generative-ai";
-
-        // --- PASTE YOUR API KEY HERE ---
-        const GEMINI_API_KEY = "AIzaSyByn6N8xaJpRbVc41IijDkiYUOrkQnMQ4c";
+        // IMPORTING THE API KEY FROM THE EXTERNAL FILE
+        import { GEMINI_API_KEY } from "./config.js";
 
         // Global State
         let modelCOCO = null;
         let genAI = null;
         let geminiModel = null;
         let isRunning = false;
-        
-        // Simulation States
         let isFireSimulated = false;
         let isGatherSimulated = false;
-        
         let audioCtx = null;
         let lastAlarmTime = 0;
         let brightnessHistory = []; 
@@ -104,8 +97,9 @@
         const canvas = document.getElementById('overlay');
         const ctx = canvas.getContext('2d');
 
+        // Functions
         function initAudio() {
-            audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+            if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
         }
 
         function triggerAlarm(severity) {
@@ -125,35 +119,15 @@
             osc.start(); osc.stop(audioCtx.currentTime + 0.3);
         }
 
-        window.toggleFireSim = () => {
-            isFireSimulated = !isFireSimulated;
-            document.getElementById('btn-sim-fire').classList.toggle('active-sim');
-            updateSimOverlay();
-            if(isFireSimulated) triggerAlarm(90);
-        };
-
-        window.toggleGatherSim = () => {
-            isGatherSimulated = !isGatherSimulated;
-            document.getElementById('btn-sim-gather').classList.toggle('active-sim');
-            updateSimOverlay();
-            if(isGatherSimulated) triggerAlarm(50);
-        };
-
-        function updateSimOverlay() {
-            const layer = document.getElementById('sim-layer');
-            layer.style.display = (isFireSimulated || isGatherSimulated) ? 'block' : 'none';
-        }
-
-        window.startApp = async () => {
-            // Check if key was provided in the code
-            if (GEMINI_API_KEY === "Gemini API CODE") {
-                alert("Please edit the code and paste your Gemini API Key in the GEMINI_API_KEY variable.");
+        async function startApp() {
+            if (!GEMINI_API_KEY || GEMINI_API_KEY.includes("YOUR_")) {
+                alert("API Key missing in config.js");
                 return;
             }
 
             initAudio();
             genAI = new GoogleGenerativeAI(GEMINI_API_KEY);
-            geminiModel = genAI.getGenerativeModel({ model: "gemini-2.5-flash-lite" });
+            geminiModel = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
             try {
                 const stream = await navigator.mediaDevices.getUserMedia({ video: { width: 640, height: 480 } });
@@ -167,11 +141,9 @@
                 
                 loop();
                 setInterval(checkGeminiAI, AI_INTERVAL);
-                
-                // Hide Initialize button after starting
-                document.querySelector('#controls button').style.display = 'none';
+                document.getElementById('start-btn').style.display = 'none';
             } catch (e) { alert("Error: " + e.message); }
-        };
+        }
 
         function analyzeEnvironment(frameData) {
             let totalLuma = 0;
@@ -291,6 +263,23 @@
                 } else currentFireBox = null;
             } catch (e) { console.error("AI Error", e); }
         }
+
+        // Event Listeners
+        document.getElementById('start-btn').addEventListener('click', startApp);
+        
+        document.getElementById('btn-sim-fire').addEventListener('click', () => {
+            isFireSimulated = !isFireSimulated;
+            document.getElementById('btn-sim-fire').classList.toggle('active-sim');
+            document.getElementById('sim-layer').style.display = (isFireSimulated || isGatherSimulated) ? 'block' : 'none';
+            if(isFireSimulated) triggerAlarm(90);
+        });
+
+        document.getElementById('btn-sim-gather').addEventListener('click', () => {
+            isGatherSimulated = !isGatherSimulated;
+            document.getElementById('btn-sim-gather').classList.toggle('active-sim');
+            document.getElementById('sim-layer').style.display = (isFireSimulated || isGatherSimulated) ? 'block' : 'none';
+            if(isGatherSimulated) triggerAlarm(50);
+        });
     </script>
 </body>
 </html>
